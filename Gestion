@@ -1,0 +1,195 @@
+import streamlit as st
+import pandas as pd
+from datetime import datetime
+
+# Configuration de la page
+st.set_page_config(page_title="Gestion des Ventes & Commissions", layout="wide")
+
+# --- INITIALISATION DES DONNÉES ---
+if 'acheteurs' not in st.session_state:
+    st.session_state['acheteurs'] = []
+if 'commandes' not in st.session_state:
+    st.session_state['commandes'] = []
+
+# --- BARRE DE NAVIGATION LATERALE ---
+st.sidebar.title("Navigation")
+menu = st.sidebar.radio(
+    "Aller vers :",
+    (
+        "📊 Tableau de bord", 
+        "👤 Ajouter un acheteur", 
+        "🔍 Profil Acheteur", 
+        "➕ Nouvelle commande", 
+        "💰 Commissions à payer"
+    )
+)
+
+st.title("📦 Application de Gestion des Ventes")
+
+# --- PAGE 1 : AJOUTER UN ACHETEUR ---
+if menu == "👤 Ajouter un acheteur":
+    st.header("Enregistrer un nouvel acheteur")
+    
+    with st.form("form_acheteur", clear_on_submit=True):
+        col1, col2 = st.columns(2)
+        with col1:
+            nom_acheteur = st.text_input("Nom de l'acheteur *")
+            contact = st.text_input("Contact (Email ou Téléphone)")
+        with col2:
+            parrain = st.text_input("Nom du parrain (Laisser vide si aucun)")
+            commission_parrain = st.number_input("Commission du parrain (%)", min_value=0.0, max_value=100.0, step=1.0)
+            
+        soumis_acheteur = st.form_submit_button("Ajouter l'acheteur")
+        
+        if soumis_acheteur:
+            if nom_acheteur.strip() == "":
+                st.error("Le nom de l'acheteur est obligatoire.")
+            else:
+                nouvel_acheteur = {
+                    "Nom": nom_acheteur,
+                    "Contact": contact,
+                    "Parrain": parrain if parrain else "Aucun",
+                    "Commission Parrain (%)": commission_parrain
+                }
+                st.session_state['acheteurs'].append(nouvel_acheteur)
+                st.success(f"L'acheteur {nom_acheteur} a été ajouté avec succès.")
+
+# --- PAGE 2 : PROFIL ACHETEUR ---
+elif menu == "🔍 Profil Acheteur":
+    st.header("Profil et Historique de l'Acheteur")
+    
+    if len(st.session_state['acheteurs']) == 0:
+        st.warning("Veuillez d'abord ajouter un acheteur dans la section correspondante.")
+    else:
+        # Liste déroulante pour sélectionner l'acheteur
+        liste_noms = [a["Nom"] for a in st.session_state['acheteurs']]
+        acheteur_selectionne = st.selectbox("Sélectionnez un acheteur pour voir son profil", liste_noms)
+        
+        # Récupération des informations de l'acheteur
+        infos_acheteur = next(a for a in st.session_state['acheteurs'] if a["Nom"] == acheteur_selectionne)
+        
+        # Affichage du profil
+        st.subheader("Informations de l'acheteur")
+        col_info1, col_info2 = st.columns(2)
+        col_info1.write(f"**Contact :** {infos_acheteur['Contact']}")
+        col_info2.write(f"**Parrain :** {infos_acheteur['Parrain']} ({infos_acheteur['Commission Parrain (%)']} %)")
+        
+        st.divider()
+        
+        # Historique des commandes de cet acheteur
+        st.subheader("Historique des achats")
+        historique = [c for c in st.session_state['commandes'] if c["Acheteur"] == infos_acheteur["Nom"]]
+        if historique:
+            st.dataframe(pd.DataFrame(historique), use_container_width=True)
+        else:
+            st.info("Aucun achat enregistré pour le moment pour cet acheteur.")
+
+# --- PAGE 3 : NOUVELLE COMMANDE ---
+elif menu == "➕ Nouvelle commande":
+    st.header("Créer une nouvelle commande")
+    
+    if len(st.session_state['acheteurs']) == 0:
+        st.warning("Veuillez d'abord ajouter un acheteur avant de pouvoir créer une commande.")
+    else:
+        with st.form("form_commande", clear_on_submit=True):
+            # Sélection de l'acheteur
+            liste_noms = [a["Nom"] for a in st.session_state['acheteurs']]
+            acheteur_selectionne = st.selectbox("Acheteur concerné", liste_noms)
+            
+            # Nouveau champ : Site web
+            boutique = st.text_input("Boutique / Site web *")
+            
+            # Montants et commissions
+            col_m1, col_m2 = st.columns(2)
+            with col_m1:
+                montant = st.number_input("Montant total de la vente (€)", min_value=0.0, step=1.0)
+            with col_m2:
+                commission_vendeur_pct = st.number_input("Votre commission de vendeur (%)", min_value=0.0, max_value=100.0, step=1.0)
+            
+            # Nouveau champ : Notes
+            notes = st.text_area("Notes éventuelles (statut, détails particuliers...)")
+            
+            soumis_commande = st.form_submit_button("Enregistrer la commande")
+            
+            if soumis_commande:
+                if boutique.strip() == "":
+                    st.error("Le nom de la boutique ou du site web est obligatoire.")
+                elif montant <= 0:
+                    st.error("Le montant de la commande doit être supérieur à 0.")
+                else:
+                    # Récupération des infos du parrain pour le calcul
+                    infos_acheteur = next(a for a in st.session_state['acheteurs'] if a["Nom"] == acheteur_selectionne)
+                    
+                    # Calculs des commissions
+                    commission_vendeur_eur = montant * (commission_vendeur_pct / 100)
+                    
+                    if infos_acheteur['Parrain'] != "Aucun":
+                        commission_parrain_eur = commission_vendeur_eur * (infos_acheteur['Commission Parrain (%)'] / 100)
+                    else:
+                        commission_parrain_eur = 0.0
+                        
+                    # Création de l'enregistrement de la commande
+                    nouvelle_commande = {
+                        "Date": datetime.now().strftime("%d/%m/%Y %H:%M"),
+                        "Acheteur": acheteur_selectionne,
+                        "Boutique": boutique,
+                        "Montant Total (€)": montant,
+                        "Commission Vendeur (%)": commission_vendeur_pct,
+                        "Commission Vendeur (€)": commission_vendeur_eur,
+                        "Parrain": infos_acheteur["Parrain"],
+                        "Commission Parrain (€)": commission_parrain_eur,
+                        "Notes": notes
+                    }
+                    st.session_state['commandes'].append(nouvelle_commande)
+                    st.success("Commande ajoutée avec succès ! Les commissions ont été calculées.")
+
+# --- PAGE 4 : COMMISSIONS À PAYER ---
+elif menu == "💰 Commissions à payer":
+    st.header("Récapitulatif des commissions parrains")
+    
+    if len(st.session_state['commandes']) == 0:
+        st.info("Aucune commande n'a encore été effectuée.")
+    else:
+        df_commandes = pd.DataFrame(st.session_state['commandes'])
+        
+        # On filtre pour ne garder que les commandes avec un vrai parrain
+        df_parrains = df_commandes[df_commandes["Parrain"] != "Aucun"]
+        
+        if df_parrains.empty:
+            st.info("Aucune commission de parrainage générée pour le moment.")
+        else:
+            # Groupement des données par parrain avec Pandas
+            recap_parrains = df_parrains.groupby("Parrain").agg(
+                Total_Achats_Filleuls=("Montant Total (€)", "sum"),
+                Total_Commissions_Dues=("Commission Parrain (€)", "sum")
+            ).reset_index()
+            
+            st.dataframe(recap_parrains, use_container_width=True)
+
+# --- PAGE 5 : TABLEAU DE BORD GLOBAL ---
+elif menu == "📊 Tableau de bord":
+    st.header("Vue d'ensemble de l'activité")
+    
+    col1, col2 = st.columns(2)
+    col1.metric("Nombre total d'acheteurs", len(st.session_state['acheteurs']))
+    col2.metric("Nombre total de commandes", len(st.session_state['commandes']))
+    
+    if len(st.session_state['commandes']) > 0:
+        df_global = pd.DataFrame(st.session_state['commandes'])
+        
+        total_genere_vendeur = df_global["Commission Vendeur (€)"].sum()
+        total_du_parrains = df_global["Commission Parrain (€)"].sum()
+        benefice_net = total_genere_vendeur - total_du_parrains
+        
+        st.divider()
+        st.subheader("Bilan Financier Vendeur")
+        col_f1, col_f2, col_f3 = st.columns(3)
+        col_f1.metric("Commissions Vendeur Brutes", f"{total_genere_vendeur:.2f} €")
+        col_f2.metric("Total dû aux parrains", f"{total_du_parrains:.2f} €")
+        col_f3.metric("Bénéfice Net", f"{benefice_net:.2f} €")
+        
+        st.divider()
+        st.subheader("Toutes les commandes")
+        # Sélection des colonnes à afficher pour un tableau plus clair
+        colonnes_affichage = ["Date", "Acheteur", "Boutique", "Montant Total (€)", "Commission Vendeur (€)", "Parrain", "Notes"]
+        st.dataframe(df_global[colonnes_affichage], use_container_width=True)
